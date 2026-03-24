@@ -2,6 +2,7 @@ import { jsPDF } from "@/lib/jspdf-shim";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useBackend } from "../../hooks/useBackend";
+import { loadAllExpenses, updateMaxExpenseId } from "../../lib/expenseUtils";
 import { Button } from "../ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../ui/dialog";
@@ -10,26 +11,6 @@ import { Label } from "../ui/label";
 
 const LOGO =
   "/assets/uploads/3rd_eye_logo-removebg-preview-removebg-preview-019d1f46-4f45-741e-b66d-a9115d608d7c-1.png";
-
-const LS_KEY = "3rdeye_expense_ids";
-
-function getStoredExpenseIds(): bigint[] {
-  try {
-    const raw = localStorage.getItem(LS_KEY);
-    if (!raw) return [];
-    const arr = JSON.parse(raw) as string[];
-    return arr.map((s) => BigInt(s));
-  } catch {
-    return [];
-  }
-}
-
-function saveExpenseId(id: bigint) {
-  const existing = getStoredExpenseIds();
-  if (!existing.find((e) => e === id)) {
-    localStorage.setItem(LS_KEY, JSON.stringify([...existing, String(id)]));
-  }
-}
 
 function addLogoToPdf(doc: jsPDF) {
   doc.rect(10, 5, 190, 28);
@@ -69,9 +50,7 @@ function addPdfFooter(
     "3rd Eye Homes — Society Maintenance Management",
     105,
     pageHeight - 6,
-    {
-      align: "center",
-    },
+    { align: "center" },
   );
 }
 
@@ -104,18 +83,11 @@ export default function Expenses() {
 
   const loadExpenses = useCallback(async () => {
     if (!backend) return;
+    setLoadingList(true);
     try {
-      const ids = getStoredExpenseIds();
-      if (ids.length === 0) {
-        setLoadingList(false);
-        return;
-      }
-      const results = await Promise.all(
-        ids.map((id) => backend.getExpense(id)),
-      );
-      const valid = results.filter((e): e is Expense => e !== null);
-      valid.sort((a, b) => b.date.localeCompare(a.date));
-      setExpenses(valid);
+      const all = await loadAllExpenses(() => backend.getAllExpenses());
+      all.sort((a, b) => b.date.localeCompare(a.date));
+      setExpenses(all);
     } catch {
       // silently ignore
     }
@@ -150,7 +122,8 @@ export default function Expenses() {
         amount: BigInt(Number(amount)),
         date,
       });
-      saveExpenseId(newId);
+      // Track the max expense ID for reliable scanning
+      updateMaxExpenseId(newId);
       setCategory("");
       setDescription("");
       setAmount("");
@@ -187,10 +160,6 @@ export default function Expenses() {
     }
     addPdfFooter(doc, 1, 1, exp.category, exp.date);
     doc.save(`Expense_${exp.date}_${exp.category}.pdf`);
-  };
-
-  const printExpensePDF = (exp: Expense) => {
-    downloadExpensePDF(exp);
   };
 
   const downloadAllPDF = () => {
@@ -399,7 +368,7 @@ export default function Expenses() {
                             size="sm"
                             variant="outline"
                             className="text-xs px-2"
-                            onClick={() => printExpensePDF(exp)}
+                            onClick={() => downloadExpensePDF(exp)}
                             data-ocid={`expenses.print.button.${idx + 1}`}
                           >
                             Print
@@ -492,7 +461,7 @@ export default function Expenses() {
                 </Button>
                 <Button
                   variant="outline"
-                  onClick={() => printExpensePDF(viewExpense)}
+                  onClick={() => downloadExpensePDF(viewExpense)}
                   data-ocid="expenses.modal.print.button"
                 >
                   Print

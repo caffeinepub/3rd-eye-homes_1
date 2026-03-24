@@ -1,6 +1,7 @@
 import { jsPDF } from "@/lib/jspdf-shim";
 import { useCallback, useEffect, useState } from "react";
 import { useBackend } from "../../hooks/useBackend";
+import { loadAllExpenses } from "../../lib/expenseUtils";
 import { Button } from "../ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../ui/dialog";
@@ -9,24 +10,13 @@ import { Label } from "../ui/label";
 
 const LOGO =
   "/assets/uploads/3rd_eye_logo-removebg-preview-removebg-preview-019d1f46-4f45-741e-b66d-a9115d608d7c-1.png";
-const LS_KEY = "3rdeye_expense_ids";
-
-function getStoredExpenseIds(): bigint[] {
-  try {
-    const raw = localStorage.getItem(LS_KEY);
-    if (!raw) return [];
-    return (JSON.parse(raw) as string[]).map((s) => BigInt(s));
-  } catch {
-    return [];
-  }
-}
 
 interface LedgerRow {
   date: string;
   particulars: string;
   flatOrCategory: string;
-  debit: number; // expense = debit
-  credit: number; // income = credit
+  debit: number;
+  credit: number;
   balance: number;
   type: "income" | "expense";
 }
@@ -148,9 +138,10 @@ export default function IncomeExpenseStatement() {
     if (!backend) return;
     setLoading(true);
     try {
-      const [flats, expenseIds] = await Promise.all([
-        backend.getPendingFlats(),
-        Promise.resolve(getStoredExpenseIds()),
+      // Load flats and expenses in parallel
+      const [flats, allExpenses] = await Promise.all([
+        backend.getPendingFlats().catch(() => []),
+        loadAllExpenses(() => backend.getAllExpenses()).catch(() => []),
       ]);
 
       // Fetch all flat statements
@@ -158,21 +149,20 @@ export default function IncomeExpenseStatement() {
         flats.map((f) =>
           backend
             .getFlatStatement(f.id)
-            .then((st) => ({ flat: f, ...st }))
+            .then((st) => ({ flat: f, credits: st.credits, debits: st.debits }))
             .catch(() => ({ flat: f, credits: [], debits: [] })),
         ),
       );
 
-      // Fetch all expenses
-      const expenseResults = await Promise.all(
-        expenseIds.map((id) => backend.getExpense(id).catch(() => null)),
-      );
-
-      // Build all ledger rows
       const allRaw: Omit<LedgerRow, "balance">[] = [];
 
+      // Add income entries from maintenance payments
       for (const { flat, credits } of statementResults) {
-        for (const c of credits as any[]) {
+        for (const c of credits as Array<{
+          date: string;
+          amount: bigint;
+          paymentMode: string;
+        }>) {
           allRaw.push({
             date: c.date,
             particulars: `Maintenance Payment (${c.paymentMode})`,
@@ -184,8 +174,8 @@ export default function IncomeExpenseStatement() {
         }
       }
 
-      for (const exp of expenseResults) {
-        if (!exp) continue;
+      // Add expense entries
+      for (const exp of allExpenses) {
         allRaw.push({
           date: exp.date,
           particulars: exp.description,
@@ -205,8 +195,8 @@ export default function IncomeExpenseStatement() {
       });
 
       setRows(withBalance);
-    } catch {
-      // silently ignore
+    } catch (err) {
+      console.error("Error loading income/expense data:", err);
     }
     setLoading(false);
   }, [backend]);
@@ -223,7 +213,6 @@ export default function IncomeExpenseStatement() {
     return true;
   });
 
-  // Recalculate running balance for filtered rows
   let runBalance = 0;
   const displayRows = filteredRows.map((r) => {
     runBalance += r.credit - r.debit;
@@ -263,19 +252,12 @@ export default function IncomeExpenseStatement() {
       </thead>
       <tbody>
         {displayRows.map((r, i) => (
-          <tr
-            // biome-ignore lint/suspicious/noArrayIndexKey: ledger rows indexed
-            key={i}
-            className={`${
-              i % 2 === 0 ? "bg-white" : "bg-gray-50"
-            } ${r.type === "income" ? "" : ""}`}
-          >
+          // biome-ignore lint/suspicious/noArrayIndexKey: ledger rows
+          <tr key={i} className={i % 2 === 0 ? "bg-white" : "bg-gray-50"}>
             <td className="p-2 border">{r.date}</td>
             <td className="p-2 border">
               <span
-                className={`inline-block w-2 h-2 rounded-full mr-1 ${
-                  r.type === "income" ? "bg-green-500" : "bg-red-500"
-                }`}
+                className={`inline-block w-2 h-2 rounded-full mr-1 ${r.type === "income" ? "bg-green-500" : "bg-red-500"}`}
               />
               {r.particulars}
             </td>
@@ -287,9 +269,7 @@ export default function IncomeExpenseStatement() {
               {r.credit ? `₹${r.credit.toLocaleString("en-IN")}` : "–"}
             </td>
             <td
-              className={`p-2 border text-right font-bold ${
-                r.balance >= 0 ? "text-green-700" : "text-red-700"
-              }`}
+              className={`p-2 border text-right font-bold ${r.balance >= 0 ? "text-green-700" : "text-red-700"}`}
             >
               ₹{Math.abs(r.balance).toLocaleString("en-IN")}
               <span className="text-xs ml-1">
@@ -323,9 +303,7 @@ export default function IncomeExpenseStatement() {
               ₹{totalIncome.toLocaleString("en-IN")}
             </td>
             <td
-              className={`p-2 border text-right ${
-                netBalance >= 0 ? "text-green-700" : "text-red-700"
-              }`}
+              className={`p-2 border text-right ${netBalance >= 0 ? "text-green-700" : "text-red-700"}`}
             >
               ₹{Math.abs(netBalance).toLocaleString("en-IN")}
               <span className="text-xs ml-1">
@@ -340,7 +318,6 @@ export default function IncomeExpenseStatement() {
 
   return (
     <div className="space-y-4">
-      {/* Filters */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
@@ -422,7 +399,6 @@ export default function IncomeExpenseStatement() {
         </CardContent>
       </Card>
 
-      {/* Summary Cards */}
       {displayRows.length > 0 && (
         <div className="grid grid-cols-3 gap-4 no-print">
           <Card className="border-green-300">
@@ -442,16 +418,12 @@ export default function IncomeExpenseStatement() {
             </CardContent>
           </Card>
           <Card
-            className={`${
-              netBalance >= 0 ? "border-teal-300" : "border-red-300"
-            }`}
+            className={netBalance >= 0 ? "border-teal-300" : "border-red-300"}
           >
             <CardContent className="p-4 text-center">
               <p className="text-xs text-gray-500 mb-1">Net Balance</p>
               <p
-                className={`text-xl font-bold ${
-                  netBalance >= 0 ? "text-teal-700" : "text-red-700"
-                }`}
+                className={`text-xl font-bold ${netBalance >= 0 ? "text-teal-700" : "text-red-700"}`}
               >
                 ₹{Math.abs(netBalance).toLocaleString("en-IN")}
                 <span className="text-sm ml-1">
@@ -463,7 +435,6 @@ export default function IncomeExpenseStatement() {
         </div>
       )}
 
-      {/* Print-only header */}
       <div className="print-only mb-4">
         <div className="border-2 border-black p-3 mb-2">
           <div className="flex items-center gap-3 mb-1">
@@ -475,9 +446,6 @@ export default function IncomeExpenseStatement() {
             <div>
               <h1 className="text-xl font-bold">3rd Eye Homes</h1>
               <p className="text-sm">Society Maintenance Management System</p>
-              <p className="text-xs text-gray-600">
-                Admin Office, 3rd Eye Society, Your City
-              </p>
             </div>
           </div>
         </div>
@@ -488,7 +456,6 @@ export default function IncomeExpenseStatement() {
         <hr className="my-2" />
       </div>
 
-      {/* Ledger Table */}
       <Card>
         <CardHeader className="no-print">
           <CardTitle className="text-sm">
@@ -511,13 +478,11 @@ export default function IncomeExpenseStatement() {
         </CardContent>
       </Card>
 
-      {/* Print-only footer */}
       <div className="print-only mt-4 text-xs text-gray-500 border-t pt-2">
         Printed on: {new Date().toLocaleDateString("en-IN")} | Period:{" "}
         {dateFrom || "All"} to {dateTo || "All"} | 3rd Eye Homes
       </div>
 
-      {/* View Modal */}
       <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
         <DialogContent
           className="max-w-5xl max-h-[85vh] overflow-y-auto"
@@ -545,8 +510,6 @@ export default function IncomeExpenseStatement() {
                 Period: {dateFrom || "Beginning"} to {dateTo || "Date"}
               </p>
             </div>
-
-            {/* Summary in modal */}
             <div className="grid grid-cols-3 gap-3 text-center">
               <div className="bg-green-50 border border-green-200 rounded p-3">
                 <p className="text-xs text-gray-500">Total Income</p>
@@ -561,25 +524,17 @@ export default function IncomeExpenseStatement() {
                 </p>
               </div>
               <div
-                className={`border rounded p-3 ${
-                  netBalance >= 0
-                    ? "bg-teal-50 border-teal-200"
-                    : "bg-red-50 border-red-200"
-                }`}
+                className={`border rounded p-3 ${netBalance >= 0 ? "bg-teal-50 border-teal-200" : "bg-red-50 border-red-200"}`}
               >
                 <p className="text-xs text-gray-500">Net Balance</p>
                 <p
-                  className={`font-bold ${
-                    netBalance >= 0 ? "text-teal-700" : "text-red-700"
-                  }`}
+                  className={`font-bold ${netBalance >= 0 ? "text-teal-700" : "text-red-700"}`}
                 >
                   ₹{Math.abs(netBalance).toLocaleString("en-IN")}
                 </p>
               </div>
             </div>
-
             <LedgerTable />
-
             <div className="flex gap-2 justify-end">
               <Button
                 className="bg-teal-700 hover:bg-teal-800 text-white"

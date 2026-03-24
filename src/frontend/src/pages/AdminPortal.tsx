@@ -1,6 +1,7 @@
 import { useState } from "react";
 import AdminDashboard from "../components/admin/AdminDashboard";
 import AdminProfile from "../components/admin/AdminProfile";
+import DataBackup from "../components/admin/DataBackup";
 import Expenses from "../components/admin/Expenses";
 import FlatOwners from "../components/admin/FlatOwners";
 import IncomeExpenseStatement from "../components/admin/IncomeExpenseStatement";
@@ -23,6 +24,7 @@ const SLICERS = [
   { key: "incomeexpense", label: "Income & Expense", icon: "📈" },
   { key: "profile", label: "Admin Profile", icon: "⚙️" },
   { key: "pending", label: "Pending List", icon: "⏳" },
+  { key: "backup", label: "Data Backup", icon: "💾" },
 ];
 
 export default function AdminPortal({ onLogout }: { onLogout: () => void }) {
@@ -49,6 +51,8 @@ export default function AdminPortal({ onLogout }: { onLogout: () => void }) {
         return <AdminProfile />;
       case "pending":
         return <PendingList />;
+      case "backup":
+        return <DataBackup />;
       default:
         return <AdminDashboard />;
     }

@@ -87,6 +87,7 @@ export interface backendInterface {
     getCallerUserRole(): Promise<UserRole>;
     getDebitEntry(id: bigint): Promise<DebitEntry | null>;
     getExpense(id: bigint): Promise<Expense | null>;
+    getAllExpenses(): Promise<Array<Expense>>;
     getFlatOwner(id: bigint): Promise<FlatOwner | null>;
     getFlatStatement(flatId: bigint): Promise<{
         credits: Array<Payment>;
@@ -112,6 +113,7 @@ export interface backendInterface {
     getSocietyProfile(): Promise<SocietyProfile | null>;
     getUserProfile(user: Principal): Promise<UserProfile | null>;
     isCallerAdmin(): Promise<boolean>;
+    resetFinancialData(): Promise<void>;
     saveCallerUserProfile(profile: UserProfile): Promise<void>;
     updateFlatOwner(flatOwner: FlatOwner): Promise<void>;
     updateSocietyProfile(profile: SocietyProfile): Promise<void>;

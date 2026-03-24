@@ -42,6 +42,7 @@ export const FlatOwner = IDL.Record({
   'ownerMobile' : IDL.Text,
   'flatNumber' : IDL.Text,
   'maintenanceAmount' : IDL.Nat,
+  'openingBalance' : IDL.Nat,
 });
 export const ExternalBlob = IDL.Vec(IDL.Nat8);
 export const Notice = IDL.Record({
@@ -74,6 +75,7 @@ export const UserProfile = IDL.Record({
 });
 export const SocietyProfile = IDL.Record({
   'name' : IDL.Text,
+  'address' : IDL.Text,
   'licenseNumber' : IDL.Text,
   'voucherCategories' : IDL.Vec(IDL.Text),
 });
@@ -126,6 +128,7 @@ export const idlService = IDL.Service({
   'addPayment' : IDL.Func([Payment], [IDL.Nat], []),
   'assignCallerUserRole' : IDL.Func([IDL.Principal, UserRole], [], []),
   'generateMonthlyDebit' : IDL.Func([IDL.Text, IDL.Text], [], []),
+  'getAllExpenses' : IDL.Func([], [IDL.Vec(Expense)], ['query']),
   'getAllNotices' : IDL.Func([], [IDL.Vec(Notice)], ['query']),
   'getCallerUserProfile' : IDL.Func([], [IDL.Opt(UserProfile)], ['query']),
   'getCallerUserRole' : IDL.Func([], [UserRole], ['query']),
@@ -138,6 +141,7 @@ export const idlService = IDL.Service({
         IDL.Record({
           'credits' : IDL.Vec(Payment),
           'debits' : IDL.Vec(DebitEntry),
+          'openingBalance' : IDL.Nat,
         }),
       ],
       ['query'],
@@ -160,6 +164,7 @@ export const idlService = IDL.Service({
             'ownerMobile' : IDL.Text,
             'flatNumber' : IDL.Text,
             'maintenanceAmount' : IDL.Nat,
+            'openingBalance' : IDL.Nat,
           })
         ),
       ],
@@ -172,6 +177,7 @@ export const idlService = IDL.Service({
       ['query'],
     ),
   'isCallerAdmin' : IDL.Func([], [IDL.Bool], ['query']),
+  'resetFinancialData' : IDL.Func([], [], []),
   'saveCallerUserProfile' : IDL.Func([UserProfile], [], []),
   'updateFlatOwner' : IDL.Func([FlatOwner], [], []),
   'updateSocietyProfile' : IDL.Func([SocietyProfile], [], []),
@@ -214,6 +220,7 @@ export const idlFactory = ({ IDL }) => {
     'ownerMobile' : IDL.Text,
     'flatNumber' : IDL.Text,
     'maintenanceAmount' : IDL.Nat,
+    'openingBalance' : IDL.Nat,
   });
   const ExternalBlob = IDL.Vec(IDL.Nat8);
   const Notice = IDL.Record({
@@ -246,6 +253,7 @@ export const idlFactory = ({ IDL }) => {
   });
   const SocietyProfile = IDL.Record({
     'name' : IDL.Text,
+    'address' : IDL.Text,
     'licenseNumber' : IDL.Text,
     'voucherCategories' : IDL.Vec(IDL.Text),
   });
@@ -298,6 +306,7 @@ export const idlFactory = ({ IDL }) => {
     'addPayment' : IDL.Func([Payment], [IDL.Nat], []),
     'assignCallerUserRole' : IDL.Func([IDL.Principal, UserRole], [], []),
     'generateMonthlyDebit' : IDL.Func([IDL.Text, IDL.Text], [], []),
+    'getAllExpenses' : IDL.Func([], [IDL.Vec(Expense)], ['query']),
     'getAllNotices' : IDL.Func([], [IDL.Vec(Notice)], ['query']),
     'getCallerUserProfile' : IDL.Func([], [IDL.Opt(UserProfile)], ['query']),
     'getCallerUserRole' : IDL.Func([], [UserRole], ['query']),
@@ -310,6 +319,7 @@ export const idlFactory = ({ IDL }) => {
           IDL.Record({
             'credits' : IDL.Vec(Payment),
             'debits' : IDL.Vec(DebitEntry),
+            'openingBalance' : IDL.Nat,
           }),
         ],
         ['query'],
@@ -332,6 +342,7 @@ export const idlFactory = ({ IDL }) => {
               'ownerMobile' : IDL.Text,
               'flatNumber' : IDL.Text,
               'maintenanceAmount' : IDL.Nat,
+              'openingBalance' : IDL.Nat,
             })
           ),
         ],
@@ -344,6 +355,7 @@ export const idlFactory = ({ IDL }) => {
         ['query'],
       ),
     'isCallerAdmin' : IDL.Func([], [IDL.Bool], ['query']),
+    'resetFinancialData' : IDL.Func([], [], []),
     'saveCallerUserProfile' : IDL.Func([UserProfile], [], []),
     'updateFlatOwner' : IDL.Func([FlatOwner], [], []),
     'updateSocietyProfile' : IDL.Func([SocietyProfile], [], []),

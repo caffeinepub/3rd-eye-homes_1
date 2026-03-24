@@ -112,6 +112,7 @@ export interface FlatOwner {
     ownerMobile: string;
     flatNumber: string;
     maintenanceAmount: bigint;
+    openingBalance: bigint;
 }
 export interface _CaffeineStorageRefillInformation {
     proposed_top_up_amount?: bigint;
@@ -174,6 +175,7 @@ export interface backendInterface {
     addPayment(payment: Payment): Promise<bigint>;
     assignCallerUserRole(user: Principal, role: UserRole): Promise<void>;
     generateMonthlyDebit(description: string, date: string): Promise<void>;
+    getAllExpenses(): Promise<Array<Expense>>;
     getAllNotices(): Promise<Array<Notice>>;
     getCallerUserProfile(): Promise<UserProfile | null>;
     getCallerUserRole(): Promise<UserRole>;
@@ -203,6 +205,7 @@ export interface backendInterface {
     getSocietyProfile(): Promise<SocietyProfile | null>;
     getUserProfile(user: Principal): Promise<UserProfile | null>;
     isCallerAdmin(): Promise<boolean>;
+    resetFinancialData(): Promise<void>;
     saveCallerUserProfile(profile: UserProfile): Promise<void>;
     updateFlatOwner(flatOwner: FlatOwner): Promise<void>;
     updateSocietyProfile(profile: SocietyProfile): Promise<void>;
@@ -418,6 +421,20 @@ export class Backend implements backendInterface {
         } else {
             const result = await this.actor.generateMonthlyDebit(arg0, arg1);
             return result;
+        }
+    }
+    async getAllExpenses(): Promise<Array<Expense>> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getAllExpenses();
+                return result as Array<Expense>;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getAllExpenses();
+            return result as Array<Expense>;
         }
     }
     async getAllNotices(): Promise<Array<Notice>> {
@@ -685,6 +702,17 @@ export class Backend implements backendInterface {
         } else {
             const result = await this.actor.updateSocietyProfile(arg0);
             return result;
+        }
+    }
+    async resetFinancialData(): Promise<void> {
+        if (this.processError) {
+            try {
+                await this.actor.resetFinancialData();
+            } catch (e) {
+                return this.processError(e);
+            }
+        } else {
+            await this.actor.resetFinancialData();
         }
     }
 }

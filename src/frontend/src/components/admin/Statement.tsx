@@ -1,6 +1,12 @@
 import { jsPDF } from "@/lib/jspdf-shim";
 import { useEffect, useState } from "react";
 import { useBackend } from "../../hooks/useBackend";
+import {
+  buildDocFooter,
+  buildDocHeader,
+  buildSignatureBlock,
+  printDocument,
+} from "../../lib/printUtils";
 import { Button } from "../ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../ui/dialog";
@@ -205,7 +211,50 @@ export default function Statement() {
     doc.save(`Statement_${selectedFlat.flatNumber}.pdf`);
   };
 
-  const handlePrint = () => window.print();
+  const handlePrint = () => {
+    if (!selectedFlat) return;
+    const today = new Date().toLocaleDateString("en-IN");
+    const totalDebit = statement.reduce((s, r) => s + r.debit, 0);
+    const totalCredit = statement.reduce((s, r) => s + r.credit, 0);
+    const finalBalance = statement[statement.length - 1]?.balance ?? 0;
+    const rowsHtml = statement
+      .map(
+        (r, i) => `
+      <tr style="background:${i % 2 === 0 ? "#fff" : "#f5f5f5"}">
+        <td class="right" style="text-align:left">${r.date}</td>
+        <td>${r.description}</td>
+        <td class="right red">${r.debit ? `₹${r.debit.toLocaleString("en-IN")}` : "–"}</td>
+        <td class="right green">${r.credit ? `₹${r.credit.toLocaleString("en-IN")}` : "–"}</td>
+        <td class="right ${r.balance > 0 ? "red" : "green"}">₹${Math.abs(r.balance).toLocaleString("en-IN")} <span style="font-size:9px">${r.balance > 0 ? "Dr" : "Cr"}</span></td>
+      </tr>`,
+      )
+      .join("");
+    const html = `
+      <div class="doc-wrap">
+        ${buildDocHeader("3rd Eye Homes", "Society Maintenance Management System", societyAddress)}
+        <div class="doc-title"><h2>Statement of Account</h2><p>Date: ${today}</p></div>
+        <div class="doc-info">
+          <span>Flat: ${selectedFlat.flatNumber} (${selectedFlat.block})</span>
+          <span>Owner: ${selectedFlat.ownerName}</span>
+        </div>
+        <table>
+          <thead><tr>
+            <th>Date</th><th>Particulars</th>
+            <th class="right">Debit (Dr)</th><th class="right">Credit (Cr)</th><th class="right">Balance</th>
+          </tr></thead>
+          <tbody>${rowsHtml}</tbody>
+          <tfoot><tr>
+            <td colspan="2">Totals</td>
+            <td class="right red">₹${totalDebit.toLocaleString("en-IN")}</td>
+            <td class="right green">₹${totalCredit.toLocaleString("en-IN")}</td>
+            <td class="right ${finalBalance > 0 ? "red" : "green"}">₹${Math.abs(finalBalance).toLocaleString("en-IN")} ${finalBalance > 0 ? "Dr" : "Cr"}</td>
+          </tr></tfoot>
+        </table>
+        ${buildSignatureBlock()}
+        ${buildDocFooter(`Flat: ${selectedFlat.flatNumber} | Owner: ${selectedFlat.ownerName}`, "3rd Eye Homes — Statement of Account", 1)}
+      </div>`;
+    printDocument(`Statement of Account - ${selectedFlat.flatNumber}`, html);
+  };
 
   const StatementTable = () => (
     <table className="w-full text-sm border-collapse">
@@ -339,34 +388,6 @@ export default function Statement() {
 
       {statement.length > 0 && (
         <div>
-          <div className="print-only mb-4">
-            <div className="border-2 border-black p-3 mb-2">
-              <div className="flex items-center gap-3 mb-1">
-                <img
-                  src={LOGO}
-                  alt="3rd Eye Home"
-                  className="w-12 h-12 object-contain"
-                />
-                <div>
-                  <h1 className="text-xl font-bold">3rd Eye Homes</h1>
-                  <p className="text-sm">
-                    Society Maintenance Management System
-                  </p>
-                  <p className="text-xs text-gray-600">
-                    {societyAddress || "Admin Office, 3rd Eye Society"}
-                  </p>
-                </div>
-              </div>
-            </div>
-            <h2 className="text-lg font-semibold">Statement of Account</h2>
-            {selectedFlat && (
-              <p className="text-sm text-gray-600">
-                Flat: {selectedFlat.flatNumber} ({selectedFlat.block}) | Owner:{" "}
-                {selectedFlat.ownerName}
-              </p>
-            )}
-            <hr className="my-2" />
-          </div>
           <Card>
             <CardHeader className="no-print">
               <CardTitle className="text-sm">
@@ -380,10 +401,6 @@ export default function Statement() {
               </div>
             </CardContent>
           </Card>
-          <div className="print-only mt-4 text-xs text-gray-500 border-t pt-2">
-            Printed on: {new Date().toLocaleDateString("en-IN")} | Flat:{" "}
-            {selectedFlat?.flatNumber} | Owner: {selectedFlat?.ownerName}
-          </div>
         </div>
       )}
       {statement.length === 0 && selectedId && !loading && (

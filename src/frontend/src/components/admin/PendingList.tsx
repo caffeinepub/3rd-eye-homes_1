@@ -1,6 +1,12 @@
 import { jsPDF } from "@/lib/jspdf-shim";
 import { useEffect, useState } from "react";
 import { useBackend } from "../../hooks/useBackend";
+import {
+  buildDocFooter,
+  buildDocHeader,
+  buildSignatureBlock,
+  printDocument,
+} from "../../lib/printUtils";
 import { Button } from "../ui/button";
 import { Card, CardContent } from "../ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../ui/dialog";
@@ -183,7 +189,41 @@ export default function PendingList() {
     );
   };
 
-  const handlePrint = () => window.print();
+  const handlePrint = () => {
+    const today = new Date().toLocaleDateString("en-IN");
+    const rowsHtml = filtered
+      .map(
+        (f, i) => `
+      <tr style="background:${i % 2 === 0 ? "#fff" : "#f5f5f5"}">
+        <td>${i + 1}</td>
+        <td>${f.block}</td>
+        <td>${f.flatNumber}</td>
+        <td>${f.ownerName}</td>
+        <td>${f.mobile ?? ""}</td>
+        <td class="right red">₹${Number(f.pendingAmount).toLocaleString("en-IN")}</td>
+      </tr>`,
+      )
+      .join("");
+    const html = `
+      <div class="doc-wrap">
+        ${buildDocHeader("3rd Eye Homes", "Society Maintenance Management System", societyAddress)}
+        <div class="doc-title"><h2>Pending Maintenance Statement</h2><p>Generated: ${today}</p></div>
+        <table>
+          <thead><tr>
+            <th>#</th><th>Block</th><th>Flat No.</th><th>Owner Name</th><th>Mobile</th>
+            <th class="right">Pending (₹)</th>
+          </tr></thead>
+          <tbody>${rowsHtml}</tbody>
+          <tfoot><tr>
+            <td colspan="5">Total Pending</td>
+            <td class="right red">₹${total.toLocaleString("en-IN")}</td>
+          </tr></tfoot>
+        </table>
+        ${buildSignatureBlock()}
+        ${buildDocFooter(`Generated: ${today}`, "3rd Eye Homes — Pending Maintenance Statement", 1)}
+      </div>`;
+    printDocument("Pending Maintenance Statement", html);
+  };
 
   const PendingTable = () => (
     <table className="w-full text-sm border-collapse">
@@ -285,46 +325,6 @@ export default function PendingList() {
         </CardContent>
       </Card>
 
-      {/* Print-only layout */}
-      <div className="print-only">
-        <div className="border-2 border-black p-3 mb-3">
-          <div className="flex items-center gap-3 mb-1">
-            <img
-              src={LOGO}
-              alt="3rd Eye Home"
-              className="w-12 h-12 object-contain"
-            />
-            <div className="flex-1 text-center">
-              <h1 className="text-xl font-bold">3rd Eye Homes</h1>
-              <p className="text-sm">Society Maintenance Management System</p>
-              <p className="text-xs text-gray-600">
-                {societyAddress || "Admin Office, 3rd Eye Society"}
-              </p>
-            </div>
-          </div>
-        </div>
-        <h2 className="text-lg font-semibold text-center mb-1">
-          Pending Maintenance Statement
-        </h2>
-        <p className="text-center text-xs text-gray-500 mb-3">
-          Generated on: {new Date().toLocaleDateString("en-IN")}
-        </p>
-        <hr className="mb-3" />
-        <PendingTable />
-        <div className="mt-8 flex justify-end">
-          <div className="text-center">
-            <div className="border-t border-black w-48 mb-1" />
-            <p className="text-sm font-semibold">Authorized Signature</p>
-            <p className="text-sm font-bold">3rd Eye Home</p>
-          </div>
-        </div>
-        <div className="mt-4 border-t pt-2 text-xs text-gray-500 text-center">
-          3rd Eye Homes — Society Maintenance Management | Printed:{" "}
-          {new Date().toLocaleDateString("en-IN")}
-        </div>
-      </div>
-
-      {/* PDF Preview Dialog */}
       <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
         <DialogContent className="max-w-4xl max-h-[88vh] overflow-y-auto">
           <DialogHeader>

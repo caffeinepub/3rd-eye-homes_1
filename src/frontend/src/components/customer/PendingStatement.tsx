@@ -1,6 +1,12 @@
 import { jsPDF } from "@/lib/jspdf-shim";
 import { useEffect, useState } from "react";
 import { useBackend } from "../../hooks/useBackend";
+import {
+  buildDocFooter,
+  buildDocHeader,
+  buildSignatureBlock,
+  printDocument,
+} from "../../lib/printUtils";
 import { Button } from "../ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 
@@ -100,11 +106,46 @@ export default function PendingStatement({
     doc.save(`PendingStatement_${flatNumber}.pdf`);
   };
 
-  const handlePrint = () => window.print();
+  const handlePrint = () => {
+    const today = new Date().toLocaleDateString("en-IN");
+    const pendingNum = Number(pending);
+    const rowsHtml = debits
+      .map(
+        (d: any, i: number) => `
+      <tr style="background:${i % 2 === 0 ? "#fff" : "#f5f5f5"}">
+        <td>${d.date ?? ""}</td>
+        <td>${d.description ?? d.month ?? ""}</td>
+        <td class="right red">₹${Number(d.amount ?? d.debit ?? 0).toLocaleString("en-IN")}</td>
+      </tr>`,
+      )
+      .join("");
+    const html = `
+      <div class="doc-wrap">
+        ${buildDocHeader("3rd Eye Homes", "Society Maintenance Management System", "")}
+        <div class="doc-title"><h2>Pending Statement</h2><p>Date: ${today}</p></div>
+        <div class="doc-info">
+          <span>Flat: ${flatNumber}</span><span>Owner: ${ownerName}</span>
+          <span>Outstanding: ₹${pendingNum.toLocaleString("en-IN")}</span>
+        </div>
+        <table>
+          <thead><tr>
+            <th>Date</th><th>Description</th><th class="right">Amount (₹)</th>
+          </tr></thead>
+          <tbody>${rowsHtml}</tbody>
+          <tfoot><tr>
+            <td colspan="2">Total Outstanding</td>
+            <td class="right red">₹${pendingNum.toLocaleString("en-IN")}</td>
+          </tr></tfoot>
+        </table>
+        ${buildSignatureBlock()}
+        ${buildDocFooter(`Flat: ${flatNumber} | Owner: ${ownerName}`, "3rd Eye Homes \u2014 Pending Statement", 1)}
+      </div>`;
+    printDocument(`Pending Statement - ${flatNumber}`, html);
+  };
 
   return (
     <div className="space-y-4">
-      <div className="flex gap-2 justify-end no-print">
+      <div className="flex gap-2 justify-end">
         <Button
           variant="outline"
           onClick={downloadPDF}
@@ -121,33 +162,11 @@ export default function PendingStatement({
         </Button>
       </div>
 
-      {/* Print header */}
-      <div className="hidden print:block mb-4">
-        <div className="flex items-center gap-3 mb-2">
-          <img
-            src={LOGO}
-            alt="3rd Eye Home"
-            className="w-12 h-12 object-contain"
-          />
-          <div>
-            <h1 className="text-xl font-bold">3rd Eye Home</h1>
-            <p className="text-sm text-gray-600">
-              Society Maintenance Management
-            </p>
-          </div>
-        </div>
-        <h2 className="text-lg font-semibold">Pending Statement</h2>
-        <p className="text-sm text-gray-600">
-          Owner: {ownerName} | Flat No: {flatNumber}
-        </p>
-        <hr className="my-2" />
-      </div>
-
       <Card className="border-red-200">
         <CardHeader className="pb-2">
           <CardTitle className="text-sm text-gray-500 flex items-center gap-2">
             <img src={LOGO} alt="" className="w-5 h-5 object-contain" />
-            Total Outstanding — {ownerName}
+            Total Outstanding &mdash; {ownerName}
           </CardTitle>
         </CardHeader>
         <CardContent>

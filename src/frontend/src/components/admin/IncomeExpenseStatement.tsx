@@ -2,6 +2,11 @@ import { jsPDF } from "@/lib/jspdf-shim";
 import { useCallback, useEffect, useState } from "react";
 import { useBackend } from "../../hooks/useBackend";
 import { loadAllExpenses } from "../../lib/expenseUtils";
+import {
+  buildDocFooter,
+  buildDocHeader,
+  printDocument,
+} from "../../lib/printUtils";
 import { Button } from "../ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../ui/dialog";
@@ -230,7 +235,45 @@ export default function IncomeExpenseStatement() {
     doc.save(`IncomeExpense_${dateFrom || "start"}_to_${dateTo || "end"}.pdf`);
   };
 
-  const handlePrint = () => window.print();
+  const handlePrint = () => {
+    const today = new Date().toLocaleDateString("en-IN");
+    const rowsHtml = displayRows
+      .map(
+        (r, i) => `
+      <tr style="background:${i % 2 === 0 ? "#fff" : "#f5f5f5"}">
+        <td>${r.date}</td>
+        <td>${r.particulars}</td>
+        <td>${r.flatOrCategory}</td>
+        <td class="right red">${r.debit ? `₹${r.debit.toLocaleString("en-IN")}` : "–"}</td>
+        <td class="right green">${r.credit ? `₹${r.credit.toLocaleString("en-IN")}` : "–"}</td>
+        <td class="right ${r.balance >= 0 ? "green" : "red"}">₹${Math.abs(r.balance).toLocaleString("en-IN")} <span style="font-size:9px">${r.balance >= 0 ? "Cr" : "Dr"}</span></td>
+      </tr>`,
+      )
+      .join("");
+    const finalBalance = displayRows.length
+      ? displayRows[displayRows.length - 1].balance
+      : 0;
+    const html = `
+      <div class="doc-wrap">
+        ${buildDocHeader("3rd Eye Homes", "Society Maintenance Management System", "")}
+        <div class="doc-title"><h2>Income &amp; Expense Statement</h2><p>Period: ${dateFrom || "Beginning"} to ${dateTo || "Date"} | Printed: ${today}</p></div>
+        <table>
+          <thead><tr>
+            <th>Date</th><th>Particulars</th><th>Flat/Category</th>
+            <th class="right">Debit (Dr)</th><th class="right">Credit (Cr)</th><th class="right">Balance</th>
+          </tr></thead>
+          <tbody>${rowsHtml}</tbody>
+          <tfoot><tr>
+            <td colspan="3">Totals</td>
+            <td class="right red">₹${totalExpense.toLocaleString("en-IN")}</td>
+            <td class="right green">₹${totalIncome.toLocaleString("en-IN")}</td>
+            <td class="right ${finalBalance >= 0 ? "green" : "red"}">₹${Math.abs(finalBalance).toLocaleString("en-IN")} ${finalBalance >= 0 ? "Cr" : "Dr"}</td>
+          </tr></tfoot>
+        </table>
+        ${buildDocFooter(`Period: ${dateFrom || "All"} to ${dateTo || "All"}`, "3rd Eye Homes — Income &amp; Expense Statement", 1)}
+      </div>`;
+    printDocument("Income & Expense Statement", html);
+  };
 
   const LedgerTable = () => (
     <table className="w-full text-xs border-collapse">
@@ -318,146 +361,113 @@ export default function IncomeExpenseStatement() {
 
   return (
     <div className="space-y-4">
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base">
-            <img src={LOGO} alt="" className="w-6 h-6 object-contain" />
-            Income & Expense Statement
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex flex-wrap gap-4 items-end">
-            <div>
-              <Label htmlFor="dateFrom">From Date</Label>
-              <Input
-                id="dateFrom"
-                type="date"
-                value={dateFrom}
-                onChange={(e) => setDateFrom(e.target.value)}
-                className="w-40"
-                data-ocid="incomeexpense.date_from.input"
-              />
-            </div>
-            <div>
-              <Label htmlFor="dateTo">To Date</Label>
-              <Input
-                id="dateTo"
-                type="date"
-                value={dateTo}
-                onChange={(e) => setDateTo(e.target.value)}
-                className="w-40"
-                data-ocid="incomeexpense.date_to.input"
-              />
-            </div>
-            <div>
-              <Label htmlFor="typeFilter">Type</Label>
-              <select
-                id="typeFilter"
-                className="w-full border rounded px-3 py-2 text-sm"
-                value={filterType}
-                onChange={(e) => setFilterType(e.target.value as FilterType)}
-                data-ocid="incomeexpense.type.select"
-              >
-                <option value="all">All Transactions</option>
-                <option value="income">Income Only</option>
-                <option value="expense">Expenses Only</option>
-              </select>
-            </div>
+      <div className="flex gap-3 items-end flex-wrap">
+        <div>
+          <label
+            htmlFor="dateFrom"
+            className="text-xs font-medium text-gray-600"
+          >
+            From Date
+          </label>
+          <input
+            id="dateFrom"
+            type="date"
+            className="block border rounded px-2 py-1 text-sm mt-0.5"
+            value={dateFrom}
+            onChange={(e) => setDateFrom(e.target.value)}
+            data-ocid="incomeexpense.dateFrom.input"
+          />
+        </div>
+        <div>
+          <label htmlFor="dateTo" className="text-xs font-medium text-gray-600">
+            To Date
+          </label>
+          <input
+            id="dateTo"
+            type="date"
+            className="block border rounded px-2 py-1 text-sm mt-0.5"
+            value={dateTo}
+            onChange={(e) => setDateTo(e.target.value)}
+            data-ocid="incomeexpense.dateTo.input"
+          />
+        </div>
+        <div className="flex gap-2 flex-wrap">
+          {(["all", "income", "expense"] as FilterType[]).map((t) => (
             <Button
-              onClick={loadData}
-              disabled={loading}
-              className="bg-teal-700 hover:bg-teal-800 text-white"
-              data-ocid="incomeexpense.refresh.button"
+              key={t}
+              size="sm"
+              variant={filterType === t ? "default" : "outline"}
+              className={
+                filterType === t
+                  ? "bg-teal-700 text-white"
+                  : "border-teal-300 text-teal-700"
+              }
+              onClick={() => setFilterType(t)}
+              data-ocid={`incomeexpense.${t}.tab`}
             >
-              {loading ? "Loading..." : "Refresh"}
+              {t === "all" ? "All" : t === "income" ? "Income" : "Expenses"}
             </Button>
-            <Button
-              variant="outline"
-              className="border-teal-400 text-teal-700 hover:bg-teal-50"
-              onClick={() => setPreviewOpen(true)}
-              data-ocid="incomeexpense.view.button"
-            >
-              View
-            </Button>
-            <Button
-              variant="outline"
-              className="border-teal-400 text-teal-700 hover:bg-teal-50"
-              onClick={downloadPDF}
-              data-ocid="incomeexpense.download.button"
-            >
-              Download PDF
-            </Button>
-            <Button
-              variant="outline"
-              className="border-teal-400 text-teal-700 hover:bg-teal-50"
-              onClick={handlePrint}
-              data-ocid="incomeexpense.print.button"
-            >
-              Print (A4)
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+          ))}
+        </div>
+        <div className="flex-1" />
+        <Button
+          variant="outline"
+          className="border-teal-400 text-teal-700 hover:bg-teal-50"
+          onClick={() => setPreviewOpen(true)}
+          data-ocid="incomeexpense.view.button"
+        >
+          View
+        </Button>
+        <Button
+          variant="outline"
+          className="border-teal-400 text-teal-700 hover:bg-teal-50"
+          onClick={downloadPDF}
+          data-ocid="incomeexpense.download.button"
+        >
+          Download PDF
+        </Button>
+        <Button
+          variant="outline"
+          className="border-teal-400 text-teal-700 hover:bg-teal-50"
+          onClick={handlePrint}
+          data-ocid="incomeexpense.print.button"
+        >
+          Print (A4)
+        </Button>
+      </div>
 
       {displayRows.length > 0 && (
-        <div className="grid grid-cols-3 gap-4 no-print">
-          <Card className="border-green-300">
-            <CardContent className="p-4 text-center">
-              <p className="text-xs text-gray-500 mb-1">Total Income</p>
-              <p className="text-xl font-bold text-green-700">
-                ₹{totalIncome.toLocaleString("en-IN")}
-              </p>
-            </CardContent>
-          </Card>
-          <Card className="border-red-300">
-            <CardContent className="p-4 text-center">
-              <p className="text-xs text-gray-500 mb-1">Total Expenses</p>
-              <p className="text-xl font-bold text-red-700">
-                ₹{totalExpense.toLocaleString("en-IN")}
-              </p>
-            </CardContent>
-          </Card>
-          <Card
-            className={netBalance >= 0 ? "border-teal-300" : "border-red-300"}
+        <div className="grid grid-cols-3 gap-3 text-center">
+          <div className="bg-green-50 border border-green-200 rounded p-3">
+            <p className="text-xs text-gray-500">Total Income</p>
+            <p className="font-bold text-green-700">
+              ₹{totalIncome.toLocaleString("en-IN")}
+            </p>
+          </div>
+          <div className="bg-red-50 border border-red-200 rounded p-3">
+            <p className="text-xs text-gray-500">Total Expenses</p>
+            <p className="font-bold text-red-700">
+              ₹{totalExpense.toLocaleString("en-IN")}
+            </p>
+          </div>
+          <div
+            className={`border rounded p-3 ${netBalance >= 0 ? "bg-teal-50 border-teal-200" : "bg-red-50 border-red-200"}`}
           >
-            <CardContent className="p-4 text-center">
-              <p className="text-xs text-gray-500 mb-1">Net Balance</p>
-              <p
-                className={`text-xl font-bold ${netBalance >= 0 ? "text-teal-700" : "text-red-700"}`}
-              >
-                ₹{Math.abs(netBalance).toLocaleString("en-IN")}
-                <span className="text-sm ml-1">
-                  {netBalance >= 0 ? "Surplus" : "Deficit"}
-                </span>
-              </p>
-            </CardContent>
-          </Card>
+            <p className="text-xs text-gray-500">Net Balance</p>
+            <p
+              className={`font-bold ${netBalance >= 0 ? "text-teal-700" : "text-red-700"}`}
+            >
+              ₹{Math.abs(netBalance).toLocaleString("en-IN")}
+              <span className="text-sm ml-1">
+                {netBalance >= 0 ? "Surplus" : "Deficit"}
+              </span>
+            </p>
+          </div>
         </div>
       )}
 
-      <div className="print-only mb-4">
-        <div className="border-2 border-black p-3 mb-2">
-          <div className="flex items-center gap-3 mb-1">
-            <img
-              src={LOGO}
-              alt="3rd Eye Home"
-              className="w-12 h-12 object-contain"
-            />
-            <div>
-              <h1 className="text-xl font-bold">3rd Eye Homes</h1>
-              <p className="text-sm">Society Maintenance Management System</p>
-            </div>
-          </div>
-        </div>
-        <h2 className="text-lg font-semibold">Income & Expense Statement</h2>
-        <p className="text-sm text-gray-600">
-          Period: {dateFrom || "Beginning"} to {dateTo || "Date"}
-        </p>
-        <hr className="my-2" />
-      </div>
-
       <Card>
-        <CardHeader className="no-print">
+        <CardHeader>
           <CardTitle className="text-sm">
             Tally Ledger — All Transactions
           </CardTitle>
@@ -478,11 +488,6 @@ export default function IncomeExpenseStatement() {
         </CardContent>
       </Card>
 
-      <div className="print-only mt-4 text-xs text-gray-500 border-t pt-2">
-        Printed on: {new Date().toLocaleDateString("en-IN")} | Period:{" "}
-        {dateFrom || "All"} to {dateTo || "All"} | 3rd Eye Homes
-      </div>
-
       <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
         <DialogContent
           className="max-w-5xl max-h-[85vh] overflow-y-auto"
@@ -491,7 +496,7 @@ export default function IncomeExpenseStatement() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <img src={LOGO} alt="" className="w-8 h-8 object-contain" />
-              3rd Eye Homes — Income & Expense Statement
+              3rd Eye Homes &mdash; Income &amp; Expense Statement
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
@@ -504,7 +509,7 @@ export default function IncomeExpenseStatement() {
               </p>
               <hr className="my-2" />
               <h4 className="font-semibold text-center">
-                Income & Expense Statement
+                Income &amp; Expense Statement
               </h4>
               <p className="text-sm text-center text-gray-600">
                 Period: {dateFrom || "Beginning"} to {dateTo || "Date"}

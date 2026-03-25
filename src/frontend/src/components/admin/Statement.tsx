@@ -7,6 +7,7 @@ import {
   buildSignatureBlock,
   printDocument,
 } from "../../lib/printUtils";
+import FlatSearchSelect from "../ui/FlatSearchSelect";
 import { Button } from "../ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../ui/dialog";
@@ -330,23 +331,13 @@ export default function Statement() {
     <div className="space-y-4">
       <div className="flex gap-3 items-end flex-wrap">
         <div className="flex-1 min-w-[200px]">
-          <label htmlFor="flatSelect" className="text-sm font-medium">
-            Select Flat
-          </label>
-          <select
-            id="flatSelect"
-            className="w-full border rounded px-3 py-2 text-sm mt-1"
-            value={selectedId}
-            onChange={(e) => setSelectedId(e.target.value)}
-            data-ocid="statement.select"
-          >
-            <option value="">-- Select Flat --</option>
-            {flats.map((f) => (
-              <option key={String(f.id)} value={String(f.id)}>
-                {f.block} - {f.flatNumber} ({f.ownerName})
-              </option>
-            ))}
-          </select>
+          <FlatSearchSelect
+            flats={flats}
+            selectedId={selectedId}
+            onSelect={(_, id) => setSelectedId(id)}
+            label="Select Flat"
+            dataOcid="statement.select"
+          />
         </div>
         <Button
           className="bg-teal-700 hover:bg-teal-800 text-white"

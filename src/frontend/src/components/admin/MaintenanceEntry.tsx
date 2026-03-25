@@ -1,6 +1,7 @@
 import { jsPDF } from "@/lib/jspdf-shim";
 import { useEffect, useState } from "react";
 import { useBackend } from "../../hooks/useBackend";
+import FlatSearchSelect from "../ui/FlatSearchSelect";
 import { Button } from "../ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { Input } from "../ui/input";
@@ -54,6 +55,7 @@ export default function MaintenanceEntry() {
       });
       setSuccess({ receiptId, flat: selectedFlat, amount, paymentMode, date });
       setAmount("");
+      setSelectedId("");
     } catch {
       alert("Failed to save payment.");
     }
@@ -96,23 +98,14 @@ export default function MaintenanceEntry() {
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div>
-            <Label htmlFor="selectFlat">Select Flat</Label>
-            <select
-              id="selectFlat"
-              className="w-full border rounded px-3 py-2 text-sm"
-              value={selectedId}
-              onChange={(e) => setSelectedId(e.target.value)}
-              data-ocid="maintenance.select"
-            >
-              <option value="">-- Select Flat --</option>
-              {flats.map((f) => (
-                <option key={String(f.id)} value={String(f.id)}>
-                  {f.block} - {f.flatNumber} ({f.ownerName})
-                </option>
-              ))}
-            </select>
-          </div>
+          <FlatSearchSelect
+            flats={flats}
+            selectedId={selectedId}
+            onSelect={(_, id) => setSelectedId(id)}
+            label="Select Flat"
+            dataOcid="maintenance.select"
+          />
+
           {selectedFlat && (
             <div className="bg-blue-50 rounded p-3 text-sm">
               <p>
@@ -131,6 +124,7 @@ export default function MaintenanceEntry() {
               </p>
             </div>
           )}
+
           <div>
             <Label htmlFor="amount">Amount (₹)</Label>
             <Input
@@ -166,7 +160,7 @@ export default function MaintenanceEntry() {
           <Button
             className="w-full"
             onClick={submit}
-            disabled={saving}
+            disabled={saving || !selectedFlat}
             data-ocid="maintenance.submit_button"
           >
             {saving ? "Saving..." : "Save Payment"}

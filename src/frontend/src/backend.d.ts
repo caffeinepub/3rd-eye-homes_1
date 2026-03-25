@@ -81,13 +81,17 @@ export interface backendInterface {
     addNoticeManual(title: string, description: string, postedDate: string, attachment: ExternalBlob | null, attachmentName: string | null, category: string, createdBy: string): Promise<bigint>;
     addPayment(payment: Payment): Promise<bigint>;
     assignCallerUserRole(user: Principal, role: UserRole): Promise<void>;
+    deleteFlatOwner(id: bigint): Promise<void>;
     generateMonthlyDebit(description: string, date: string): Promise<void>;
+    getAllDebitEntries(): Promise<Array<DebitEntry>>;
+    getAllExpenses(): Promise<Array<Expense>>;
+    getAllFlatOwners(): Promise<Array<FlatOwner>>;
     getAllNotices(): Promise<Array<Notice>>;
+    getAllPayments(): Promise<Array<Payment>>;
     getCallerUserProfile(): Promise<UserProfile | null>;
     getCallerUserRole(): Promise<UserRole>;
     getDebitEntry(id: bigint): Promise<DebitEntry | null>;
     getExpense(id: bigint): Promise<Expense | null>;
-    getAllExpenses(): Promise<Array<Expense>>;
     getFlatOwner(id: bigint): Promise<FlatOwner | null>;
     getFlatStatement(flatId: bigint): Promise<{
         credits: Array<Payment>;

@@ -174,7 +174,11 @@ export interface backendInterface {
     addNoticeManual(title: string, description: string, postedDate: string, attachment: ExternalBlob | null, attachmentName: string | null, category: string, createdBy: string): Promise<bigint>;
     addPayment(payment: Payment): Promise<bigint>;
     assignCallerUserRole(user: Principal, role: UserRole): Promise<void>;
-    generateMonthlyDebit(description: string, date: string): Promise<void>;
+    deleteFlatOwner(id: bigint): Promise<void>;
+    generateMonthlyDebit(description: string, date: string): Promise<{ added: bigint; skipped: bigint }>;
+    getAllDebitEntries(): Promise<Array<DebitEntry>>;
+    getAllFlatOwners(): Promise<Array<FlatOwner>>;
+    getAllPayments(): Promise<Array<Payment>>;
     getAllExpenses(): Promise<Array<Expense>>;
     getAllNotices(): Promise<Array<Notice>>;
     getCallerUserProfile(): Promise<UserProfile | null>;
@@ -409,7 +413,7 @@ export class Backend implements backendInterface {
             return result;
         }
     }
-    async generateMonthlyDebit(arg0: string, arg1: string): Promise<void> {
+    async generateMonthlyDebit(arg0: string, arg1: string): Promise<{ added: bigint; skipped: bigint }> {
         if (this.processError) {
             try {
                 const result = await this.actor.generateMonthlyDebit(arg0, arg1);
@@ -703,6 +707,26 @@ export class Backend implements backendInterface {
             const result = await this.actor.updateSocietyProfile(arg0);
             return result;
         }
+    }
+    async deleteFlatOwner(arg0: bigint): Promise<void> {
+        if (this.processError) {
+            try { await this.actor.deleteFlatOwner(arg0); } catch (e) { return this.processError(e); }
+        } else { await this.actor.deleteFlatOwner(arg0); }
+    }
+    async getAllDebitEntries(): Promise<Array<DebitEntry>> {
+        if (this.processError) {
+            try { const r = await this.actor.getAllDebitEntries(); return r.map(x => ({ id: x.id, flatId: x.flatId, date: x.date, description: x.description, amount: x.amount })); } catch (e) { return this.processError(e); }
+        } else { const r = await this.actor.getAllDebitEntries(); return r.map(x => ({ id: x.id, flatId: x.flatId, date: x.date, description: x.description, amount: x.amount })); }
+    }
+    async getAllFlatOwners(): Promise<Array<FlatOwner>> {
+        if (this.processError) {
+            try { const r = await this.actor.getAllFlatOwners(); return r.map(x => ({ id: x.id, block: x.block, flatNumber: x.flatNumber, ownerName: x.ownerName, maintenanceAmount: x.maintenanceAmount, ownerMobile: x.ownerMobile, password: x.password, flatStatus: x.flatStatus, openingBalance: x.openingBalance })); } catch (e) { return this.processError(e); }
+        } else { const r = await this.actor.getAllFlatOwners(); return r.map(x => ({ id: x.id, block: x.block, flatNumber: x.flatNumber, ownerName: x.ownerName, maintenanceAmount: x.maintenanceAmount, ownerMobile: x.ownerMobile, password: x.password, flatStatus: x.flatStatus, openingBalance: x.openingBalance })); }
+    }
+    async getAllPayments(): Promise<Array<Payment>> {
+        if (this.processError) {
+            try { const r = await this.actor.getAllPayments(); return r.map(x => ({ id: x.id, flatId: x.flatId, amount: x.amount, paymentMode: x.paymentMode, date: x.date, receiptId: x.receiptId })); } catch (e) { return this.processError(e); }
+        } else { const r = await this.actor.getAllPayments(); return r.map(x => ({ id: x.id, flatId: x.flatId, amount: x.amount, paymentMode: x.paymentMode, date: x.date, receiptId: x.receiptId })); }
     }
     async resetFinancialData(): Promise<void> {
         if (this.processError) {

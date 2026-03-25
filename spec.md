@@ -1,23 +1,24 @@
 # 3rd Eye Homes
 
 ## Current State
-- FlatOwners.tsx has Add/Edit/Export Excel but no bulk import for flat owners
-- MonthlyDebit.tsx has a description and date input but no month/year selection dropdowns
+The `generateMonthlyDebit` backend function applies a debit entry to every flat owner unconditionally every time it is called. This means running it twice for the same month/year will double-charge all flat owners.
 
 ## Requested Changes (Diff)
 
 ### Add
-- Bulk upload button in FlatOwners that accepts an Excel/CSV file and adds all rows to backend
-- Month dropdown (Jan-Dec) and Year dropdown (past 3 to next 3 years) in MonthlyDebit
-- Auto-populate description from selected month/year
+- Duplicate-check logic in `generateMonthlyDebit`: before adding a debit entry for a flat, check if a debit with the same `description` (e.g. "January 2026 Maintenance") already exists for that flat. If yes, skip it.
+- Return value `{ added: Nat; skipped: Nat }` from `generateMonthlyDebit` so the UI can display how many flats were charged vs already had the entry.
 
 ### Modify
-- FlatOwners: add "Bulk Upload" button next to existing buttons; parse uploaded file and call addFlatOwner for each row
-- MonthlyDebit: replace freeform description with month+year selectors; description auto-generates; date auto-set to 1st of selected month
+- `generateMonthlyDebit` in `main.mo` to skip flats already debited for the given month.
+- `backend.did.d.ts` return type for `generateMonthlyDebit` from `undefined` to `{ added: bigint; skipped: bigint }`.
+- `MonthlyDebit.tsx` to show meaningful success message including count of new vs skipped.
 
 ### Remove
-- Nothing
+- Nothing removed.
 
 ## Implementation Plan
-1. FlatOwners.tsx: add file input (hidden), "Bulk Upload" button triggers it, parse XLSX, validate each row, call addFlatOwner in sequence, show progress toast
-2. MonthlyDebit.tsx: add month select (Jan-Dec) and year select (current year ±3), auto-generate description like "April 2026 Maintenance", auto-set date to 1st of that month
+1. Update `generateMonthlyDebit` in `main.mo` to check existing debit entries per flat before adding.
+2. Change return type to `{ added: Nat; skipped: Nat }`.
+3. Update `backend.did.d.ts` return type.
+4. Update `MonthlyDebit.tsx` to use the returned counts in the success message.

@@ -12,15 +12,12 @@ actor {
   include MixinStorage();
 
   type UserProfile = { flatId : ?Nat; name : Text; mobile : Text };
-  let userProfiles = Map.empty<Principal, UserProfile>();
 
   type Notice = {
     id : Nat; title : Text; description : Text; postedDate : Text;
     attachment : ?Storage.ExternalBlob; attachmentName : ?Text;
     category : Text; createdBy : Text;
   };
-  let notices = Map.empty<Nat, Notice>();
-  var noticeId : Nat = 0;
 
   type FlatOwner = {
     id : Nat; block : Text; flatNumber : Text; ownerName : Text;
@@ -39,20 +36,74 @@ actor {
     name : Text; licenseNumber : Text; voucherCategories : [Text];
   };
 
+  // --- Stable storage arrays (survive upgrades) ---
+  stable var _flatOwnersStable      : [(Nat, FlatOwner)]             = [];
+  stable var _paymentsStable        : [(Nat, Payment)]               = [];
+  stable var _debitEntriesStable    : [(Nat, DebitEntry)]            = [];
+  stable var _expensesStable        : [(Nat, Expense)]               = [];
+  stable var _openingBalancesStable : [(Nat, Nat)]                   = [];
+  stable var _userProfilesStable    : [(Principal, UserProfile)]     = [];
+  stable var _noticesStable         : [(Nat, Notice)]                = [];
+  stable var _societyProfileStable  : ?SocietyProfile                = null;
+  stable var _societyAddressStable  : Text                           = "";
+
+  // --- Stable counters ---
+  stable var flatOwnerId   : Nat = 0;
+  stable var paymentId     : Nat = 0;
+  stable var debitEntryId  : Nat = 0;
+  stable var expenseId     : Nat = 0;
+  stable var noticeId      : Nat = 0;
+
+  // --- In-memory maps ---
   let flatOwners      = Map.empty<Nat, FlatOwner>();
   let payments        = Map.empty<Nat, Payment>();
   let debitEntries    = Map.empty<Nat, DebitEntry>();
   let expenses        = Map.empty<Nat, Expense>();
   let openingBalances = Map.empty<Nat, Nat>();
+  let userProfiles    = Map.empty<Principal, UserProfile>();
+  let notices         = Map.empty<Nat, Notice>();
 
   var societyProfile : ?SocietyProfile = null;
   var societyAddress : Text = "";
 
-  var flatOwnerId  : Nat = 0;
-  var paymentId    : Nat = 0;
-  var debitEntryId : Nat = 0;
-  var expenseId    : Nat = 0;
+  // --- Bootstrap ---
+  do {
+    for ((k, v) in _flatOwnersStable.vals())      { flatOwners.add(k, v) };
+    for ((k, v) in _paymentsStable.vals())        { payments.add(k, v) };
+    for ((k, v) in _debitEntriesStable.vals())    { debitEntries.add(k, v) };
+    for ((k, v) in _expensesStable.vals())        { expenses.add(k, v) };
+    for ((k, v) in _openingBalancesStable.vals()) { openingBalances.add(k, v) };
+    for ((k, v) in _userProfilesStable.vals())    { userProfiles.add(k, v) };
+    for ((k, v) in _noticesStable.vals())         { notices.add(k, v) };
+    societyProfile := _societyProfileStable;
+    societyAddress := _societyAddressStable;
+  };
 
+  system func preupgrade() {
+    _flatOwnersStable      := flatOwners.entries().toArray();
+    _paymentsStable        := payments.entries().toArray();
+    _debitEntriesStable    := debitEntries.entries().toArray();
+    _expensesStable        := expenses.entries().toArray();
+    _openingBalancesStable := openingBalances.entries().toArray();
+    _userProfilesStable    := userProfiles.entries().toArray();
+    _noticesStable         := notices.entries().toArray();
+    _societyProfileStable  := societyProfile;
+    _societyAddressStable  := societyAddress;
+  };
+
+  system func postupgrade() {
+    for ((k, v) in _flatOwnersStable.vals())      { flatOwners.add(k, v) };
+    for ((k, v) in _paymentsStable.vals())        { payments.add(k, v) };
+    for ((k, v) in _debitEntriesStable.vals())    { debitEntries.add(k, v) };
+    for ((k, v) in _expensesStable.vals())        { expenses.add(k, v) };
+    for ((k, v) in _openingBalancesStable.vals()) { openingBalances.add(k, v) };
+    for ((k, v) in _userProfilesStable.vals())    { userProfiles.add(k, v) };
+    for ((k, v) in _noticesStable.vals())         { notices.add(k, v) };
+    societyProfile := _societyProfileStable;
+    societyAddress := _societyAddressStable;
+  };
+
+  // --- Flat Owner API ---
   type FlatOwnerAPI = {
     id : Nat; block : Text; flatNumber : Text; ownerName : Text;
     maintenanceAmount : Nat; ownerMobile : Text; password : Text;
@@ -93,6 +144,13 @@ actor {
     };
   };
 
+  public query func getAllFlatOwners() : async [FlatOwnerAPI] {
+    flatOwners.values().toArray().map(func(f) {
+      let ob = switch (openingBalances.get(f.id)) { case (?v) v; case null 0 };
+      { f with openingBalance = ob };
+    });
+  };
+
   public query func getPendingFlats() : async [{
     id : Nat; block : Text; flatNumber : Text; ownerName : Text;
     maintenanceAmount : Nat; ownerMobile : Text; password : Text;
@@ -112,6 +170,12 @@ actor {
     });
   };
 
+  public func deleteFlatOwner(id : Nat) : async () {
+    ignore flatOwners.remove(id);
+    ignore openingBalances.remove(id);
+  };
+
+  // --- Payment API ---
   public func addPayment(payment : Payment) : async Nat {
     let id = paymentId;
     payments.add(id, { payment with id });
@@ -123,6 +187,11 @@ actor {
     payments.get(id);
   };
 
+  public query func getAllPayments() : async [Payment] {
+    payments.values().toArray();
+  };
+
+  // --- Debit Entry API ---
   public func addDebitEntry(debitEntry : DebitEntry) : async Nat {
     let id = debitEntryId;
     debitEntries.add(id, { debitEntry with id });
@@ -134,6 +203,11 @@ actor {
     debitEntries.get(id);
   };
 
+  public query func getAllDebitEntries() : async [DebitEntry] {
+    debitEntries.values().toArray();
+  };
+
+  // --- Expense API ---
   public func addExpense(expense : Expense) : async Nat {
     let id = expenseId;
     expenses.add(id, { expense with id });
@@ -149,8 +223,7 @@ actor {
     expenses.values().toArray();
   };
 
-  // Reset all financial data: payments, debit entries, expenses, opening balances.
-  // Flat owner records and society profile are preserved.
+  // --- Reset Financial Data ---
   public func resetFinancialData() : async () {
     for (id in payments.keys().toArray().vals()) {
       ignore payments.remove(id);
@@ -169,6 +242,7 @@ actor {
     expenseId := 0;
   };
 
+  // --- Society Profile API ---
   type SocietyProfileAPI = {
     name : Text; address : Text; licenseNumber : Text; voucherCategories : [Text];
   };
@@ -192,6 +266,7 @@ actor {
     };
   };
 
+  // --- Statement / Pending API ---
   public query func getFlatStatement(flatId : Nat) : async {
     debits : [DebitEntry]; credits : [Payment]; openingBalance : Nat;
   } {
@@ -213,14 +288,33 @@ actor {
     if (totalOwed > tc) { totalOwed - tc } else { 0 };
   };
 
-  public func generateMonthlyDebit(description : Text, date : Text) : async () {
+  // --- Monthly Debit Generation (duplicate-safe) ---
+  // For each flat owner, checks whether a debit with the same description
+  // already exists. If yes, that flat is skipped (no double charge).
+  // Newly registered flats that don't have the entry yet will be charged.
+  // Returns { added, skipped } counts for UI feedback.
+  public func generateMonthlyDebit(description : Text, date : Text) : async { added : Nat; skipped : Nat } {
+    var added   : Nat = 0;
+    var skipped : Nat = 0;
+
     for (flat in flatOwners.values()) {
-      debitEntries.add(debitEntryId, {
-        id = debitEntryId; flatId = flat.id;
-        amount = flat.maintenanceAmount; description; date;
-      });
-      debitEntryId += 1;
+      let alreadyCharged = debitEntries.values().toArray()
+        .filter(func(d) { d.flatId == flat.id and d.description == description })
+        .size() > 0;
+
+      if (alreadyCharged) {
+        skipped += 1;
+      } else {
+        debitEntries.add(debitEntryId, {
+          id = debitEntryId; flatId = flat.id;
+          amount = flat.maintenanceAmount; description; date;
+        });
+        debitEntryId += 1;
+        added += 1;
+      };
     };
+
+    { added; skipped };
   };
 
   public query func getDashboardStats() : async {
@@ -243,6 +337,7 @@ actor {
     { totalFlats; totalCollected; totalPending; totalExpenses };
   };
 
+  // --- User Profile API ---
   public query ({ caller }) func getCallerUserProfile() : async ?UserProfile {
     userProfiles.get(caller);
   };
@@ -255,6 +350,7 @@ actor {
     userProfiles.get(user);
   };
 
+  // --- Notice / Announcement API ---
   public func addNotice(notice : Notice) : async Nat {
     let id = noticeId;
     notices.add(id, { notice with id });

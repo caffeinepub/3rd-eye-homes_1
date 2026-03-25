@@ -26,21 +26,23 @@ function getYearRange() {
   return years;
 }
 
+type DebitResult = { added: bigint; skipped: bigint } | null;
+
 export default function MonthlyDebit() {
   const backend = useBackend();
   const now = new Date();
   const [month, setMonth] = useState(now.getMonth());
   const [year, setYear] = useState(now.getFullYear());
   const [loading, setLoading] = useState(false);
-  const [done, setDone] = useState(false);
+  const [result, setResult] = useState<DebitResult>(null);
 
   const years = getYearRange();
   const description = `${MONTHS[month]} ${year} Maintenance`;
   const date = `${year}-${String(month + 1).padStart(2, "0")}-01`;
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: reset done when month/year changes
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reset result when month/year changes
   useEffect(() => {
-    setDone(false);
+    setResult(null);
   }, [month, year]);
 
   const generate = async () => {
@@ -50,13 +52,16 @@ export default function MonthlyDebit() {
     }
     setLoading(true);
     try {
-      await backend.generateMonthlyDebit(description, date);
-      setDone(true);
+      const res = await backend.generateMonthlyDebit(description, date);
+      setResult(res);
     } catch {
       alert("Failed to generate monthly debit entries.");
     }
     setLoading(false);
   };
+
+  const added = result ? Number(result.added) : 0;
+  const skipped = result ? Number(result.skipped) : 0;
 
   return (
     <div className="max-w-md space-y-4">
@@ -67,7 +72,8 @@ export default function MonthlyDebit() {
         <CardContent className="space-y-4">
           <p className="text-sm text-gray-500">
             Select the month and year, then generate debit entries for all
-            active flats.
+            active flats. Flats already charged for the selected month will be
+            skipped automatically.
           </p>
 
           <div className="grid grid-cols-2 gap-3">
@@ -108,10 +114,33 @@ export default function MonthlyDebit() {
             <span className="font-medium">{description}</span>
           </div>
 
-          {done && (
-            <div className="bg-green-50 border border-green-200 rounded p-3 text-green-700 text-sm">
-              Monthly debit entries for <strong>{description}</strong> generated
-              successfully!
+          {result !== null && (
+            <div
+              className={`border rounded p-3 text-sm ${
+                added > 0
+                  ? "bg-green-50 border-green-200 text-green-700"
+                  : "bg-yellow-50 border-yellow-200 text-yellow-700"
+              }`}
+            >
+              {added > 0 && (
+                <p>
+                  <strong>{added}</strong> flat{added !== 1 ? "s" : ""} charged
+                  for <strong>{description}</strong>.
+                </p>
+              )}
+              {skipped > 0 && (
+                <p className="mt-1">
+                  <strong>{skipped}</strong> flat{skipped !== 1 ? "s" : ""}{" "}
+                  already had this month's debit and{" "}
+                  {skipped !== 1 ? "were" : "was"} skipped.
+                </p>
+              )}
+              {added === 0 && skipped > 0 && (
+                <p className="mt-1 font-medium">
+                  All flats are already charged for {description}. No duplicate
+                  entries created.
+                </p>
+              )}
             </div>
           )}
 

@@ -163,9 +163,29 @@ export default function DataBackup() {
 
       log(`Backup from: ${backup.exportedAt}`);
       log(
-        `Found ${backup.flatOwners.length} flat owners, ${backup.expenses.length} expenses`,
+        `Found ${backup.flatOwners.length} flat owners, ${backup.expenses?.length ?? 0} expenses`,
       );
 
+      // Step 1: Clear all existing data before restoring to prevent duplicates
+      log("Clearing existing data before restore...");
+      try {
+        // Clear all financial data (payments, debits, expenses, opening balances)
+        await backend.resetFinancialData();
+        // Delete all existing flat owners
+        const existingOwners = await backend.getAllFlatOwners().catch(() => []);
+        for (const owner of existingOwners) {
+          await backend.deleteFlatOwner(owner.id).catch(() => {});
+        }
+        log(
+          `Cleared ${existingOwners.length} existing flat owners and all financial data.`,
+        );
+      } catch (clearErr) {
+        log(
+          `Warning: Could not fully clear existing data: ${String(clearErr)}`,
+        );
+      }
+
+      // Step 2: Restore society profile
       if (backup.societyProfile) {
         await backend
           .updateSocietyProfile(
@@ -177,6 +197,7 @@ export default function DataBackup() {
         log("Society profile restored.");
       }
 
+      // Step 3: Restore flat owners
       let ownerCount = 0;
       const flatIdMap: Record<string, bigint> = {};
       for (const rawOwner of backup.flatOwners as Array<{
@@ -205,11 +226,12 @@ export default function DataBackup() {
           flatIdMap[rawOwner.id] = newId;
           ownerCount++;
         } catch {
-          log(`  Skipped owner ${rawOwner.ownerName} (may already exist)`);
+          log(`  Skipped owner ${rawOwner.ownerName} (error during add)`);
         }
       }
       log(`Restored ${ownerCount} flat owners.`);
 
+      // Step 4: Restore payments and debit entries
       let paymentCount = 0;
       let debitCount = 0;
       for (const st of backup.flatStatements as Array<{
@@ -264,8 +286,9 @@ export default function DataBackup() {
       }
       log(`Restored ${paymentCount} payments, ${debitCount} debit entries.`);
 
+      // Step 5: Restore expenses
       let expCount = 0;
-      for (const rawExp of backup.expenses as Array<{
+      for (const rawExp of (backup.expenses ?? []) as Array<{
         date: string;
         category: string;
         description: string;
@@ -361,14 +384,15 @@ export default function DataBackup() {
         </CardHeader>
         <CardContent className="space-y-3">
           <p className="text-sm text-gray-600">
-            Upload a previously downloaded backup file to restore all data. This
-            will add all records from the backup to the system.
+            Upload a previously downloaded backup file to restore all data.
+            Existing data will be fully cleared before restoring to prevent
+            duplicates.
           </p>
           <div className="bg-orange-50 border border-orange-200 rounded p-3 text-sm text-orange-800">
-            <strong>Important:</strong> Restoring a backup adds data on top of
-            existing records. For a clean restore, it is best to use a fresh app
-            instance. Duplicate records may appear if you restore into an app
-            that already has data.
+            <strong>Note:</strong> This will first clear all existing flat
+            owners and financial records, then restore everything from the
+            backup file. Make sure you have downloaded the latest backup before
+            proceeding.
           </div>
           <div>
             <label

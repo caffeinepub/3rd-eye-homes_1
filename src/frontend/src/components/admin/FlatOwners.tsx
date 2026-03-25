@@ -21,6 +21,22 @@ interface FlatOwner {
   pendingAmount?: bigint;
 }
 
+interface ConflictRow {
+  rowIndex: number;
+  existing: FlatOwner;
+  incoming: {
+    block: string;
+    flatNumber: string;
+    ownerName: string;
+    flatStatus: string;
+    ownerMobile: string;
+    password: string;
+    maintenanceAmount: bigint;
+    openingBalance: bigint;
+  };
+  decision: "agree" | "disagree" | null;
+}
+
 const EMPTY_FORM = {
   block: "",
   flatNumber: "",
@@ -62,6 +78,24 @@ export default function FlatOwners() {
   const [bulkPreview, setBulkPreview] = useState<Record<string, unknown>[]>([]);
   const [bulkFile, setBulkFile] = useState<string>("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [deleteTarget, setDeleteTarget] = useState<FlatOwner | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  // Conflict resolution state
+  const [conflictOpen, setConflictOpen] = useState(false);
+  const [conflicts, setConflicts] = useState<ConflictRow[]>([]);
+  const [nonConflictRows, setNonConflictRows] = useState<
+    {
+      block: string;
+      flatNumber: string;
+      ownerName: string;
+      flatStatus: string;
+      ownerMobile: string;
+      password: string;
+      maintenanceAmount: bigint;
+      openingBalance: bigint;
+    }[]
+  >([]);
 
   const load = useCallback(async () => {
     if (!backend) return;
@@ -83,6 +117,22 @@ export default function FlatOwners() {
     setForm(EMPTY_FORM);
     setFormError("");
     setOpen(true);
+  };
+
+  const deleteFlat = async () => {
+    if (!backend || !deleteTarget) return;
+    setDeleting(true);
+    try {
+      await backend.deleteFlatOwner(deleteTarget.id);
+      toast.success(
+        `Flat ${deleteTarget.block} - ${deleteTarget.flatNumber} deleted.`,
+      );
+      setDeleteTarget(null);
+      load();
+    } catch {
+      toast.error("Failed to delete flat owner.");
+    }
+    setDeleting(false);
   };
 
   const openEdit = (f: FlatOwner) => {
@@ -226,12 +276,15 @@ export default function FlatOwners() {
     e.target.value = "";
   };
 
-  const executeBulkUpload = async () => {
+  // Called when user clicks "Upload All" — check for conflicts first
+  const handleBulkUploadClick = () => {
     if (!backend || bulkPreview.length === 0) return;
-    setBulkUploading(true);
-    let success = 0;
-    let failed = 0;
-    for (const row of bulkPreview) {
+
+    const conflictList: ConflictRow[] = [];
+    const newRows: typeof nonConflictRows = [];
+
+    for (let i = 0; i < bulkPreview.length; i++) {
+      const row = bulkPreview[i];
       const mobile = col(row, "Mobile", "mobile", "MobileNumber", "Phone");
       const block = col(row, "Block", "block");
       const flatNo = col(row, "FlatNo", "FlatNumber", "Flat No", "flat_number");
@@ -250,41 +303,140 @@ export default function FlatOwners() {
         col(row, "OpeningBalance", "Opening Balance", "openingbalance") || 0,
       );
 
-      if (!block || !flatNo || !ownerName || !mobile) {
-        failed++;
-        continue;
-      }
+      if (!block || !flatNo || !ownerName || !mobile) continue;
 
+      const existing = flats.find(
+        (f) =>
+          f.block.trim().toLowerCase() === block.trim().toLowerCase() &&
+          f.flatNumber.trim().toLowerCase() === flatNo.trim().toLowerCase(),
+      );
+
+      const parsed = {
+        block,
+        flatNumber: flatNo,
+        ownerName,
+        flatStatus: status,
+        ownerMobile: mobile,
+        password: mobile.slice(-6),
+        maintenanceAmount: BigInt(maintenance),
+        openingBalance: BigInt(opening),
+      };
+
+      if (existing) {
+        conflictList.push({
+          rowIndex: i,
+          existing,
+          incoming: parsed,
+          decision: null,
+        });
+      } else {
+        newRows.push(parsed);
+      }
+    }
+
+    if (conflictList.length > 0) {
+      setConflicts(conflictList);
+      setNonConflictRows(newRows);
+      setConflictOpen(true);
+    } else {
+      // No conflicts — upload directly
+      executeUploadWithDecisions(newRows, []);
+    }
+  };
+
+  const setConflictDecision = (
+    rowIndex: number,
+    decision: "agree" | "disagree",
+  ) => {
+    setConflicts((prev) =>
+      prev.map((c) => (c.rowIndex === rowIndex ? { ...c, decision } : c)),
+    );
+  };
+
+  const allDecisionsMade = conflicts.every((c) => c.decision !== null);
+
+  const confirmConflicts = () => {
+    if (!allDecisionsMade) {
+      toast.error("Please select Agree or Disagree for each duplicate entry.");
+      return;
+    }
+    setConflictOpen(false);
+    executeUploadWithDecisions(
+      nonConflictRows,
+      conflicts.filter((c) => c.decision === "agree"),
+    );
+  };
+
+  const executeUploadWithDecisions = async (
+    newRows: typeof nonConflictRows,
+    agreedConflicts: ConflictRow[],
+  ) => {
+    if (!backend) return;
+    setBulkUploading(true);
+    let success = 0;
+    let updated = 0;
+    let failed = 0;
+    let skipped = 0;
+
+    // Add new (non-conflicting) rows
+    for (const row of newRows) {
       try {
         // biome-ignore lint: ignore local type conflict
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         await (backend.addFlatOwner as (f: any) => Promise<bigint>)({
           id: BigInt(0),
-          block,
-          flatNumber: flatNo,
-          ownerName,
-          flatStatus: status,
-          ownerMobile: mobile,
-          password: mobile.slice(-6),
-          maintenanceAmount: BigInt(maintenance),
-          openingBalance: BigInt(opening),
+          ...row,
         });
         success++;
       } catch {
         failed++;
       }
     }
+
+    // Update agreed conflict rows — preserve existing opening balance
+    for (const conflict of agreedConflicts) {
+      try {
+        await backend.updateFlatOwner({
+          id: conflict.existing.id,
+          block: conflict.incoming.block,
+          flatNumber: conflict.incoming.flatNumber,
+          ownerName: conflict.incoming.ownerName,
+          flatStatus: conflict.incoming.flatStatus,
+          ownerMobile: conflict.incoming.ownerMobile,
+          password: conflict.incoming.password,
+          maintenanceAmount: conflict.incoming.maintenanceAmount,
+          // Opening balance preserved from existing record
+          openingBalance: conflict.existing.openingBalance,
+        });
+        updated++;
+      } catch {
+        failed++;
+      }
+    }
+
+    // Count disagreed
+    const disagreedCount = conflicts.filter(
+      (c) => c.decision === "disagree",
+    ).length;
+    skipped = disagreedCount;
+
     setBulkUploading(false);
     setBulkOpen(false);
     setBulkPreview([]);
     setBulkFile("");
+    setConflicts([]);
+    setNonConflictRows([]);
     await load();
-    if (success > 0)
-      toast.success(`${success} flat owner(s) added successfully!`);
-    if (failed > 0)
-      toast.error(
-        `${failed} row(s) skipped (missing required fields or error).`,
+
+    const parts: string[] = [];
+    if (success > 0) parts.push(`${success} new flat owner(s) added`);
+    if (updated > 0)
+      parts.push(
+        `${updated} existing flat owner(s) updated (opening balance preserved)`,
       );
+    if (skipped > 0) parts.push(`${skipped} duplicate(s) skipped (Disagree)`);
+    if (failed > 0) parts.push(`${failed} row(s) failed`);
+    if (parts.length > 0) toast.success(parts.join(" · "));
   };
 
   const filtered = flats.filter(
@@ -372,14 +524,25 @@ export default function FlatOwners() {
                         ₹{Number(f.openingBalance ?? 0).toLocaleString()}
                       </td>
                       <td className="p-3">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => openEdit(f)}
-                          data-ocid={`flatowners.edit_button.${idx + 1}`}
-                        >
-                          Edit
-                        </Button>
+                        <div className="flex gap-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => openEdit(f)}
+                            data-ocid={`flatowners.edit_button.${idx + 1}`}
+                          >
+                            Edit
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="border-red-300 text-red-600 hover:bg-red-50"
+                            onClick={() => setDeleteTarget(f)}
+                            data-ocid={`flatowners.delete_button.${idx + 1}`}
+                          >
+                            Delete
+                          </Button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -400,6 +563,64 @@ export default function FlatOwners() {
           )}
         </CardContent>
       </Card>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog
+        open={!!deleteTarget}
+        onOpenChange={(v) => {
+          if (!v) setDeleteTarget(null);
+        }}
+      >
+        <DialogContent
+          className="max-w-md"
+          data-ocid="flatowners.delete_dialog"
+        >
+          <DialogHeader>
+            <DialogTitle className="text-red-700">
+              Delete Flat Owner
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="bg-red-50 border border-red-200 rounded p-3 text-sm text-red-800">
+              <p className="font-medium">
+                Are you sure you want to delete this flat owner?
+              </p>
+              {deleteTarget && (
+                <p className="mt-2">
+                  <span className="font-semibold">Block:</span>{" "}
+                  {deleteTarget.block} &nbsp;|&nbsp;
+                  <span className="font-semibold">Flat:</span>{" "}
+                  {deleteTarget.flatNumber} &nbsp;|&nbsp;
+                  <span className="font-semibold">Owner:</span>{" "}
+                  {deleteTarget.ownerName}
+                </p>
+              )}
+              <p className="mt-2 text-xs text-red-600">
+                This will remove all records for this flat. You can re-add the
+                flat manually after deletion.
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <Button
+                className="flex-1 bg-red-600 hover:bg-red-700 text-white"
+                onClick={deleteFlat}
+                disabled={deleting}
+                data-ocid="flatowners.confirm_delete_button"
+              >
+                {deleting ? "Deleting..." : "Yes, Delete"}
+              </Button>
+              <Button
+                variant="outline"
+                className="flex-1"
+                onClick={() => setDeleteTarget(null)}
+                disabled={deleting}
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Add / Edit Dialog */}
       <Dialog
@@ -519,6 +740,10 @@ export default function FlatOwners() {
                   FlatNo, OwnerName, Mobile.
                 </li>
                 <li>Upload the filled file and click "Upload All".</li>
+                <li className="font-medium text-teal-900">
+                  If any Block &amp; Flat number already exists, you will be
+                  asked to Agree or Disagree before uploading.
+                </li>
               </ol>
             </div>
             <Button variant="outline" size="sm" onClick={downloadTemplate}>
@@ -587,7 +812,7 @@ export default function FlatOwners() {
             <div className="flex gap-2">
               <Button
                 className="flex-1"
-                onClick={executeBulkUpload}
+                onClick={handleBulkUploadClick}
                 disabled={bulkUploading || bulkPreview.length === 0}
               >
                 {bulkUploading
@@ -597,6 +822,188 @@ export default function FlatOwners() {
               <Button variant="outline" onClick={() => setBulkOpen(false)}>
                 Cancel
               </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Conflict Resolution Dialog */}
+      <Dialog open={conflictOpen} onOpenChange={setConflictOpen}>
+        <DialogContent
+          className="max-w-3xl max-h-[90vh] overflow-y-auto"
+          data-ocid="flatowners.conflict_dialog"
+        >
+          <DialogHeader>
+            <DialogTitle className="text-orange-700">
+              ⚠️ Duplicate Entries Found — Review Required
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="bg-orange-50 border border-orange-200 rounded p-3 text-sm text-orange-800">
+              <p className="font-medium">
+                The following Block &amp; Flat numbers already exist in the
+                system.
+              </p>
+              <p className="mt-1">
+                For each entry, choose:
+                <span className="font-semibold text-green-700"> Agree</span> —
+                update with new data (opening balance will remain unchanged), or
+                <span className="font-semibold text-red-700"> Disagree</span> —
+                keep the existing record as-is.
+              </p>
+            </div>
+
+            <div className="space-y-3">
+              {conflicts.map((conflict) => (
+                <div
+                  key={conflict.rowIndex}
+                  className={`border rounded-lg p-4 ${
+                    conflict.decision === "agree"
+                      ? "border-green-300 bg-green-50"
+                      : conflict.decision === "disagree"
+                        ? "border-red-200 bg-red-50"
+                        : "border-orange-200 bg-white"
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-3">
+                    <div>
+                      <span className="font-semibold text-gray-800">
+                        Block: {conflict.existing.block} | Flat:{" "}
+                        {conflict.existing.flatNumber}
+                      </span>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        variant={
+                          conflict.decision === "agree" ? "default" : "outline"
+                        }
+                        className={
+                          conflict.decision === "agree"
+                            ? "bg-green-600 hover:bg-green-700 text-white"
+                            : "border-green-500 text-green-700 hover:bg-green-50"
+                        }
+                        onClick={() =>
+                          setConflictDecision(conflict.rowIndex, "agree")
+                        }
+                      >
+                        ✓ Agree
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant={
+                          conflict.decision === "disagree"
+                            ? "default"
+                            : "outline"
+                        }
+                        className={
+                          conflict.decision === "disagree"
+                            ? "bg-red-600 hover:bg-red-700 text-white"
+                            : "border-red-400 text-red-600 hover:bg-red-50"
+                        }
+                        onClick={() =>
+                          setConflictDecision(conflict.rowIndex, "disagree")
+                        }
+                      >
+                        ✗ Disagree
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3 text-xs">
+                    <div className="bg-gray-100 rounded p-3">
+                      <p className="font-semibold text-gray-600 mb-1 uppercase tracking-wide">
+                        Current (Existing)
+                      </p>
+                      <div className="space-y-0.5 text-gray-700">
+                        <p>
+                          <span className="font-medium">Name:</span>{" "}
+                          {conflict.existing.ownerName}
+                        </p>
+                        <p>
+                          <span className="font-medium">Mobile:</span>{" "}
+                          {conflict.existing.ownerMobile}
+                        </p>
+                        <p>
+                          <span className="font-medium">Status:</span>{" "}
+                          {conflict.existing.flatStatus}
+                        </p>
+                        <p>
+                          <span className="font-medium">Maintenance:</span> ₹
+                          {Number(
+                            conflict.existing.maintenanceAmount,
+                          ).toLocaleString()}
+                        </p>
+                        <p className="text-orange-700 font-semibold">
+                          <span className="font-medium">Opening Bal:</span> ₹
+                          {Number(
+                            conflict.existing.openingBalance,
+                          ).toLocaleString()}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="bg-blue-50 rounded p-3 border border-blue-200">
+                      <p className="font-semibold text-blue-600 mb-1 uppercase tracking-wide">
+                        New (From Upload)
+                      </p>
+                      <div className="space-y-0.5 text-gray-700">
+                        <p>
+                          <span className="font-medium">Name:</span>{" "}
+                          {conflict.incoming.ownerName}
+                        </p>
+                        <p>
+                          <span className="font-medium">Mobile:</span>{" "}
+                          {conflict.incoming.ownerMobile}
+                        </p>
+                        <p>
+                          <span className="font-medium">Status:</span>{" "}
+                          {conflict.incoming.flatStatus}
+                        </p>
+                        <p>
+                          <span className="font-medium">Maintenance:</span> ₹
+                          {Number(
+                            conflict.incoming.maintenanceAmount,
+                          ).toLocaleString()}
+                        </p>
+                        <p className="text-orange-500 text-xs italic">
+                          <span className="font-medium">Opening Bal:</span> Will
+                          remain ₹
+                          {Number(
+                            conflict.existing.openingBalance,
+                          ).toLocaleString()}{" "}
+                          (unchanged)
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex items-center justify-between pt-2 border-t">
+              <p className="text-sm text-gray-500">
+                {conflicts.filter((c) => c.decision !== null).length} of{" "}
+                {conflicts.length} reviewed
+              </p>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => setConflictOpen(false)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={confirmConflicts}
+                  disabled={!allDecisionsMade}
+                  className={
+                    allDecisionsMade
+                      ? "bg-teal-600 hover:bg-teal-700 text-white"
+                      : ""
+                  }
+                >
+                  Confirm &amp; Proceed ({conflicts.length} duplicates)
+                </Button>
+              </div>
             </div>
           </div>
         </DialogContent>
